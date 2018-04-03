@@ -1,60 +1,57 @@
-dlext = Config::CONFIG['DLEXT']
-direc = File.dirname(__FILE__)
+require 'rspec/core/rake_task'
+RSpec::Core::RakeTask.new(:spec)
 
-begin
-  require 'bones'
-rescue LoadError
-  abort '### Please install the "bones" gem ###'
-end
+task default: :spec
+task test: :spec
+
+dlext = RbConfig::CONFIG['DLEXT']
+direc = File.dirname(__FILE__)
 
 PROJECT_NAME = "pry-doc"
 
+require 'latest_ruby'
 require 'rake/clean'
-require 'rake/gempackagetask'
 require "#{direc}/lib/#{PROJECT_NAME}/version"
 
-CLOBBER.include("**/*.#{dlext}", "**/*~", "**/*#*", "**/*.log", "**/*.o")
-CLEAN.include("ext/**/*.#{dlext}", "ext/**/*.log", "ext/**/*.o",
-              "ext/**/*~", "ext/**/*#*", "ext/**/*.obj", "**/*#*", "**/*#*.*",
-              "ext/**/*.def", "ext/**/*.pdb", "**/*_flymake*.*", "**/*_flymake")
-
-def apply_spec_defaults(s)
-  s.name = PROJECT_NAME
-  s.summary = "FIX ME"
-  s.version = PryDoc::VERSION
-  s.date = Time.now.strftime '%Y-%m-%d'
-  s.author = "John Mair (banisterfiend)"
-  s.email = 'jrmair@gmail.com'
-  s.description = s.summary
-  s.require_path = 'lib'
-  s.homepage = "http://banisterfiend.wordpress.com"
-  s.has_rdoc = 'yard'
-  s.files = Dir["ext/**/extconf.rb", "ext/**/*.h", "ext/**/*.c", "lib/**/*.rb",
-                     "test/*.rb", "HISTORY", "README.md", "Rakefile"]
+desc "start pry with fixture c file"
+task :pry_fixture do
+  sh %{pry -I./lib -r pry-doc -e "Pry::CInternals::CodeFetcher.ruby_source_folder = './spec/fixtures/c_source'"}
 end
 
-desc "run tests"
-task :test do
-  sh "bacon -k #{direc}/test/test.rb"
+desc "start pry with pry-doc code loaded"
+task :pry do
+  sh "pry -I./lib -r pry-doc"
 end
 
-namespace :ruby do
-  spec = Gem::Specification.new do |s|
-    apply_spec_defaults(s)        
-    s.platform = Gem::Platform::RUBY
-  end
-  
-  Rake::GemPackageTask.new(spec) do |pkg|
-    pkg.need_zip = false
-    pkg.need_tar = false
-  end
+desc "generate fixture etags"
+task :etags do
+  sh 'etags --no-members spec/fixtures/c_source/*.c -o spec/fixtures/c_source/TAGS'
+end
+desc "reinstall gem"
+task :reinstall => :gems do
+  sh "gem uninstall pry-doc" rescue nil
+  sh "gem install #{direc}/pkg/pry-doc-#{PryDoc::VERSION}.gem --no-document"
 end
 
 desc "build all platform gems at once"
-task :gems => [:clean, :rmgems, "ruby:gem"]
+task :gems => :rmgems do
+  mkdir_p "pkg"
+  sh 'gem build *.gemspec'
+  mv "pry-doc-#{PryDoc::VERSION}.gem", "pkg"
+end
 
 desc "remove all platform gems"
-task :rmgems => ["ruby:clobber_package"]
+task :rmgems do
+  rm_rf 'pkg'
+end
+
+desc "Build gemspec"
+task :gemspec => "ruby:gemspec"
+
+desc "Show version"
+task :version do
+  puts "PryDoc version: #{PryDoc::VERSION}"
+end
 
 desc "build and push latest gems"
 task :pushgems => :gems do
@@ -64,5 +61,73 @@ task :pushgems => :gems do
     end
   end
 end
-              
 
+def download_ruby(ruby)
+  system "mkdir rubies"
+  system "wget #{ ruby.link } --directory-prefix=rubies --no-clobber"
+  File.join('rubies', ruby.filename)
+end
+
+def unpackage_ruby(path)
+  system "mkdir rubies/ruby"
+  system "tar xzvf #{ path } --directory=rubies/ruby"
+end
+
+def cd_into_ruby
+  Dir.chdir(Dir['rubies/ruby/*'].first)
+end
+
+def generate_yard
+  system %{
+    bash -c "paste <(find . -maxdepth 1 -name '*.c') <(find ext -name '*.c') |
+      xargs yardoc --no-output"
+  }
+end
+
+def replace_existing_docs(ver)
+  system %|mkdir -p ../../../lib/pry-doc/docs/#{ver} && cp -r .yardoc/* "$_"|
+  Dir.chdir(File.expand_path(File.dirname(__FILE__)))
+end
+
+def clean_up
+  system "rm -rf rubies"
+end
+
+def generate_docs_for(ruby_ver, latest_ruby)
+  path = download_ruby(latest_ruby)
+  unpackage_ruby(path)
+  cd_into_ruby
+  generate_yard
+  replace_existing_docs(ruby_ver)
+  clean_up
+end
+
+desc "Generate the latest Ruby 2.0 docs"
+task "gen20" do
+  generate_docs_for('20', Latest.ruby20)
+end
+
+desc "Generate the latest Ruby 2.1 docs"
+task "gen21" do
+  generate_docs_for('21', Latest.ruby21)
+end
+
+desc "Generate the latest Ruby 2.2 docs"
+task "gen22" do
+  generate_docs_for('22', Latest.ruby22)
+end
+
+desc "Generate the latest Ruby 2.3 docs"
+task "gen23" do
+  generate_docs_for('23', Latest.ruby23)
+end
+
+desc "Generate the latest Ruby 2.4 docs"
+task "gen24" do
+  generate_docs_for('24', Latest.ruby24)
+end
+
+desc "Generate the latest Ruby 2.5 docs"
+task "gen25" do
+  generate_docs_for('25', Latest.ruby25)
+end

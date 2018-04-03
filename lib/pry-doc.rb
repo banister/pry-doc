@@ -1,83 +1,25 @@
-# pry-doc.rb
-# (C) John Mair (banisterfiend); MIT license
+module PryDoc
+  def self.load_yardoc(version)
+    path = "#{File.dirname(__FILE__)}/pry-doc/docs/#{version}"
+    unless File.directory?(path)
+      puts "#{RUBY_ENGINE}/#{RUBY_VERSION} isn't supported by this pry-doc version"
+    end
 
-direc = File.dirname(__FILE__)
+    # Do not use pry-doc if Rubinius is active.
+    Pry.config.has_pry_doc = RUBY_ENGINE !~ /rbx/
 
-require "#{direc}/pry-doc/version"
-require "yard"
+    YARD::Registry.load_yardoc(path)
+  end
 
-if RUBY_VERSION =~ /1.9/
-  YARD::Registry.load_yardoc("#{File.dirname(__FILE__)}/pry-doc/core_docs_19")
-else
-  YARD::Registry.load_yardoc("#{File.dirname(__FILE__)}/pry-doc/core_docs_18")
+  def self.root
+    @root ||= File.expand_path(File.dirname(__dir__))
+  end
+
+  root
 end
 
-class Pry
-  module MethodInfo
-    @doc_cache = {}
-    class << self; attr_reader :doc_cache; end
+require 'yard'
+require 'pry-doc/version'
+require 'pry-doc/pry_ext/method_info'
 
-    # Convert a method object into the `Class#method` string notation.
-    #@param [Method, UnboundMethod] meth
-    #@return [String] The method in string receiver notation.
-    def self.receiver_notation_for(meth)
-      if meth.owner.name
-        "#{meth.owner.name}##{meth.name}"
-      else 
-        "#{meth.owner.to_s[/#<.+?:(.+?)>/, 1]}.#{meth.name}"
-      end
-    end
-
-    # Check whether the file containing the method is already cached.
-    # @param [Method, UnboundMethod] meth The method object.
-    # @return [Boolean] Whether the method is cached.
-    def self.cached?(meth)
-      !!registry_lookup(meth)
-    end
-
-    def self.registry_lookup(meth)
-      obj = YARD::Registry.at(receiver_notation_for(meth))
-
-      # YARD thinks that some methods are on Object when
-      # they're actually on Kernel; so try again on Object if Kernel fails.
-      if obj.nil? && meth.owner == Kernel 
-        obj = YARD::Registry.at("Object##{meth.name}")
-      end
-      obj
-    end
-
-    # Retrieve the YARD object that contains the method data.
-    # @param [Method, UnboundMethod] meth The method object.
-    # @return [YARD::CodeObjects::MethodObject] The YARD data for the method.
-    def self.yard_object_for(meth)
-      cache(meth)
-      registry_lookup(meth)
-    end
-
-    def self.is_eval_method?(meth)
-      file, _ = meth.source_location
-      if file =~ /(\(.*\))|<.*>/
-        true
-      else
-        false
-      end
-    end
-
-    # Cache the file that holds the method or return immediately if file is
-    # already cached. Return if the method cannot be cached -
-    # i.e is a C method.
-    # @param [Method, UnboundMethod] meth The method object.
-    def self.cache(meth)
-      file, _ = meth.source_location
-      return if !file
-      return if is_eval_method?(meth)
-      return if cached?(meth)
-
-      log.enter_level(Logger::FATAL) do
-        YARD.parse(file)
-      end
-    end
-  end
-end  
-
-
+PryDoc.load_yardoc(RUBY_VERSION[0...3].sub!('.', ''))
